@@ -3,6 +3,13 @@
    Mantém o Sprint 2 e adiciona persistência + conflitos
    ========================= */
 
+/* =========================
+   script.js – Sprint 4 (REFATORAÇÃO DA API)
+   Remove localStorage (repo) e conecta ao backend Node.js
+   ========================= */
+
+
+
 /* 0) TOAST (igual Sprint 2) */
 const $toast = document.getElementById('toast');
 let __toastTimer = null;
@@ -72,7 +79,8 @@ function atualizarMenuAtivo() {
   menuLinks.forEach(a => a.setAttribute('aria-current', a.getAttribute('href') === hash ? 'true' : 'false'));
 }
 window.addEventListener('hashchange', atualizarMenuAtivo);
-document.addEventListener('DOMContentLoaded', atualizarMenuAtivo);
+//SPRINT 4: A chamada inicial foi movida para o novo DOMContentLoaded
+//document.addEventListener('DOMContentLoaded', atualizarMenuAtivo);
 
 /* 4) SELETORES das seções */
 const formLogin     = document.getElementById('formLogin');
@@ -81,10 +89,11 @@ const formSolicitar = document.getElementById('formSolicitar');
 const listaReservas = document.getElementById('listaReservas');
 
 /* =========================
-   SPRINT 3 – Regras novas
+   SPRINT 3 – Regras novas - (REVISADAS PELO SPRINT 4)
    ========================= */
 
 /** SPRINT 3: adiciona 1h ao horário “HH:MM” para fim padrão */
+//SPRINT 4: Mantido pois o backend aguarda (POST/api/reservas) espera a horaFim
 function adicionar1Hora(hhmm) {
   const [h, m] = (hhmm || '00:00').split(':').map(Number);
   const d = new Date(); d.setHours(h, m, 0, 0);
@@ -94,36 +103,73 @@ function adicionar1Hora(hhmm) {
 
 /** SPRINT 3: detecção de conflito (RN2)
  *  Não há conflito apenas quando um termina antes do outro começar. */
-function haConflito({ recursoId, data, horaInicio, horaFim }) {
-  const existentes = repo.get(DB_KEYS.reservas)
-    .filter(r => r.recursoId === recursoId && r.data === data && r.status !== 'cancelada');
-  return existentes.some(r => !(r.horaFim <= horaInicio || r.horaInicio >= horaFim));
-}
+//SPRINT 4: Remove haConflito pois toda a lógica de verificação
+// é reponsabilidade do backend (reservaController.js)
+// function haConflito({ recursoId, data, horaInicio, horaFim }) {
+//   const existentes = repo.get(DB_KEYS.reservas)
+//     .filter(r => r.recursoId === recursoId && r.data === data && r.status !== 'cancelada');
+//   return existentes.some(r => !(r.horaFim <= horaInicio || r.horaInicio >= horaFim));
+// }
 
 /** SPRINT 3: render a partir do “banco” (localStorage) */
-function renderItemReservaPersistida(r, recursosMap = null) {
+//SPRINT 4: remover renderItemReservaPersistida pois esta function
+// foi substituída por renderItemReservaAPI
+// o formato de dados mudou (vem da API com startAt, endAt
+// e o objeto recurso)
+// function renderItemReservaPersistida(r, recursosMap = null) {
+//   if (!listaReservas) return;
+//   const recursos = recursosMap || Object.fromEntries(repo.get(DB_KEYS.recursos).map(rr => [rr.id, rr.nome]));
+//   const quando = `${r.data.split('-').reverse().join('/')} • ${r.horaInicio}–${r.horaFim}`;
+//   const li = document.createElement('li');
+
+//   const simbolo = r.status === 'aprovada' ? '✅' : r.status === 'cancelada' ? '❌' : '⏳';
+//   li.innerHTML = `
+//     <span><strong>${recursos[r.recursoId] || r.recursoId}</strong> — ${quando}</span>
+//     <span>${simbolo} ${r.status.charAt(0).toUpperCase() + r.status.slice(1)}</span>
+//   `;
+
+//   if (r.status === 'cancelada') li.setAttribute('aria-disabled', 'true');
+
+//   // Cancelamento “click to cancel” (didático)
+//   li.addEventListener('click', () => {
+//     if (r.status === 'cancelada') return;
+//     r.status = 'cancelada';
+//     repo.updateById(DB_KEYS.reservas, r.id, () => r);
+//     li.lastElementChild.textContent = '❌ Cancelada';
+//     li.setAttribute('aria-disabled', 'true');
+//     mostrarToast('Reserva cancelada.', 'warn');
+//   });
+
+//   listaReservas.appendChild(li);
+// }
+
+//SPRINT 4: Nova função de renderização
+function renderItemReservaAPI(reserva){
   if (!listaReservas) return;
-  const recursos = recursosMap || Object.fromEntries(repo.get(DB_KEYS.recursos).map(rr => [rr.id, rr.nome]));
-  const quando = `${r.data.split('-').reverse().join('/')} • ${r.horaInicio}–${r.horaFim}`;
+
+  //o backend (reservaController) já fez o JOIN via include
+  const nomeRecurso = reserva.recurso?.nome || `Recurso #${reserva.recursoId}`;
+
+  //formatar as datas que vêm do banco usando timezone UTC
+  const dataFormatada = new Date(reserva.startAt).toLocaleDateString('pt-BR',{timeZone: 'UTC'});
+  const horaInicio = new Date(reserva.startAt).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit',timeZone: 'UTC'});
+  const horaFim = new Date(reserva.endAt).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit',timeZone: 'UTC'});
+  const quando = `${dataFormatada} ! ${horaInicio}-${horaFim}`;
+
   const li = document.createElement('li');
 
-  const simbolo = r.status === 'aprovada' ? '✅' : r.status === 'cancelada' ? '❌' : '⏳';
-  li.innerHTML = `
-    <span><strong>${recursos[r.recursoId] || r.recursoId}</strong> — ${quando}</span>
-    <span>${simbolo} ${r.status.charAt(0).toUpperCase() + r.status.slice(1)}</span>
+  //O backend define o status ('pendente','aprovada','rejeitada')
+  const simbolo = reserva.status === 'aprovada' ? 'caixa verificada' : (reserva.status === 'rejeitada' || reserva.status==='cancelada')? 'X cancela':'ampulheta';
+  const statusFormatado = reserva.status.charAt(0).toUpperCase() + reserva.status.slice(1);
+
+  li.innerHTML =`
+     <span><strong>${nomeRecurso}</strong> - ${quando}</span>
+     <span>${simbolo} ${statusFormatado}</span>
   `;
 
-  if (r.status === 'cancelada') li.setAttribute('aria-disabled', 'true');
-
-  // Cancelamento “click to cancel” (didático)
-  li.addEventListener('click', () => {
-    if (r.status === 'cancelada') return;
-    r.status = 'cancelada';
-    repo.updateById(DB_KEYS.reservas, r.id, () => r);
-    li.lastElementChild.textContent = '❌ Cancelada';
-    li.setAttribute('aria-disabled', 'true');
-    mostrarToast('Reserva cancelada.', 'warn');
-  });
+  if(reserva.status ==='rejeitada' || reserva.status ==='cancelada'){
+    li.setAttribute('aria-disabled','true');
+  }
 
   listaReservas.appendChild(li);
 }
@@ -177,11 +223,12 @@ formPesquisa?.addEventListener('submit', (e) => {
   const horaInicio = hora;
   const horaFim    = adicionar1Hora(horaInicio);
 
+  //SPRINT 4: remove checagem de conflito na pesquisa
   // 🚧 NOVO: checa conflito na etapa de pesquisa
-  if (haConflito({ recursoId, data, horaInicio, horaFim })) {
-    mostrarToast('Indisponível: já existe reserva nesse intervalo.', 'err');
-    return; // não avança
-  }
+  // if (haConflito({ recursoId, data, horaInicio, horaFim })) {
+  //   mostrarToast('Indisponível: já existe reserva nesse intervalo.', 'err');
+  //   return; // não avança
+  // }
 
   // mantém seu fluxo normal quando estiver disponível
   ultimoFiltroPesquisa = { recurso: recursoId, data, hora };
@@ -194,7 +241,8 @@ formPesquisa?.addEventListener('submit', (e) => {
 
 
 // (c) SOLICITAR (Sprint 3: grava no storage + valida conflito)
-formSolicitar?.addEventListener('submit', (e) => {
+// (c) SOLICITAR (Sprint 4: grava na API + valida no backend)
+formSolicitar?.addEventListener('submit', async (e) => {
   e.preventDefault();
   if (!usuarioAtual) { mostrarToast('Faça login antes de solicitar.', 'warn'); location.hash = '#secLogin'; atualizarMenuAtivo(); return; }
   if (!ultimoFiltroPesquisa) { mostrarToast('Pesquise a disponibilidade antes de solicitar.', 'warn'); location.hash = '#secPesquisa'; atualizarMenuAtivo(); return; }
@@ -207,43 +255,147 @@ formSolicitar?.addEventListener('submit', (e) => {
   const data = ultimoFiltroPesquisa.data;
   const horaInicio = ultimoFiltroPesquisa.hora;
   const horaFim = adicionar1Hora(horaInicio);   // fim padrão (+1h)
+ 
+  //SPRINT 4: remover verificação de conflito local
+  // if (haConflito({ recursoId, data, horaInicio, horaFim })) {
+  //   mostrarToast('Conflito: já existe reserva neste intervalo para este recurso.', 'err');
+  //   return;
+  // }
 
-  if (haConflito({ recursoId, data, horaInicio, horaFim })) {
-    mostrarToast('Conflito: já existe reserva neste intervalo para este recurso.', 'err');
-    return;
-  }
+  //const status = usuarioAtual.professor ? 'aprovada' : 'pendente';
 
-  const status = usuarioAtual.professor ? 'aprovada' : 'pendente';
-  const nova = {
-    id: Date.now(),                 // id simples para demo
+  //SPRINT 4: Envio para API
+  //1. Monta o objeto para a API (body da requisição)
+  const dadosParaAPI = {
     recursoId,
-    usuarioId: usuarioAtual.login,  // (simulado) login como id
-    data, horaInicio, horaFim,
-    justificativa,
-    status
+    usuarioId:  usuarioAtual.login,
+    data,
+    horaInicio,
+    horaFim,
+    justificativa
   };
 
-  repo.push(DB_KEYS.reservas, nova);            // persiste
-  renderItemReservaPersistida(nova);            // atualiza UI
-  mostrarToast(status === 'aprovada' ? 'Reserva aprovada.' : 'Reserva enviada para análise.');
-  formSolicitar.reset();
-  location.hash = '#secHistorico';
-  atualizarMenuAtivo();
+  try{
+    //2. chama a apiService (que faz 'fetch POST)
+    const novaReserva = await api.createReserva(dadosParaAPI);
+
+    //3. Sucesso!
+    //o backendo vai responder com 201 created
+    mostrarToast('reserva enviada para análise');
+    formSolicitar.reset();
+    location.hash = '#secHistorico';
+    atualizarMenuAtivo();
+
+    //4.Recarrega o histórico da API - substituir renderItemReservaPersistida
+    await carregarHistoricoUI();
+  } catch (error){
+    mostrarToast(error.message, 'err');
+   }
+
+
+
+  //SPRINT 4 - removido nova e repo.push 
+  // const nova = {
+  //   id: Date.now(),                 // id simples para demo
+  //   recursoId,
+  //   usuarioId: usuarioAtual.login,  // (simulado) login como id
+  //   data, horaInicio, horaFim,
+  //   justificativa,
+  //   status
+  // };
+
+  // repo.push(DB_KEYS.reservas, nova);            // persiste
+  // renderItemReservaPersistida(nova);            // atualiza UI
+  // mostrarToast(status === 'aprovada' ? 'Reserva aprovada.' : 'Reserva enviada para análise.');
+  // formSolicitar.reset();
+  // location.hash = '#secHistorico';
+  // atualizarMenuAtivo();
 });
 
 /* 5) ARRANQUE: já feito em storage.js (seed/popular/carregar)
    Aqui mantemos apenas o destaque do menu na carga */
 //document.addEventListener('DOMContentLoaded', atualizarMenuAtivo);
 
+//SPRINT 4: REMOVIDO ESSE CARREGAMENTO 
 //CORREÇÃO SPRINT3
-document.addEventListener('DOMContentLoaded', () => {
-  // 1️⃣ Garante que o seed e carregamentos básicos já ocorreram no storage.js
-  if (typeof seedSeNecessario === 'function') seedSeNecessario();
+// document.addEventListener('DOMContentLoaded', () => {
+//   // 1️⃣ Garante que o seed e carregamentos básicos já ocorreram no storage.js
+//   if (typeof seedSeNecessario === 'function') seedSeNecessario();
 
-  // 2️⃣ NOVO: normaliza reservas antigas (migra campos e padroniza horas)
-  if (typeof normalizarReservasAntigas === 'function') normalizarReservasAntigas();
+//   // 2️⃣ NOVO: normaliza reservas antigas (migra campos e padroniza horas)
+//   if (typeof normalizarReservasAntigas === 'function') normalizarReservasAntigas();
 
-  // 3️⃣ Atualiza menu (comportamento original)
+//   // 3️⃣ Atualiza menu (comportamento original)
+//   atualizarMenuAtivo();
+// });
+
+async function popularRecursosSelect() {
+  const sel = document.getElementById('campoRecurso'); // (do formPesquisa)
+  const selLegado = document.querySelector('.formRapido select'); // (do formHero)
+  if (!sel || !selLegado) return;
+
+  try {
+    const recursos = await api.getRecursos(); // Chama a API
+
+    const optionsHtml = '<option value="">Selecione...</option>' + recursos
+      .map(r => `<option value="${r.id}">${r.nome}</option>`)
+      .join('');
+    
+    sel.innerHTML = optionsHtml;
+    selLegado.innerHTML = optionsHtml; // Popula ambos os selects
+
+  } catch (error) {
+    mostrarToast('Falha ao carregar recursos da API.', 'err');
+    console.error(error);
+  }
+}
+
+/**
+ * SPRINT 4: Nova função para carregar o histórico de reservas
+ * (Assume que 'api.getReservas' existe em apiService.js)
+ */
+async function carregarHistoricoUI() {
+  if (!listaReservas) return;
+  
+  // SPRINT 4: Limpa a lista antes de carregar
+  listaReservas.innerHTML = '<li>Carregando histórico...</li>';
+
+  try {
+    // TODO: Opcionalmente, enviar o 'usuarioAtual.login' para filtrar
+    // const reservas = await api.getReservas(usuarioAtual?.login);
+    const reservas = await api.getReservas(); // Chama a API
+
+    listaReservas.innerHTML = ''; // Limpa o "Carregando..."
+
+    if (reservas.length === 0) {
+      listaReservas.innerHTML = '<li>Nenhuma reserva encontrada.</li>';
+      return;
+    }
+
+    reservas.forEach(reserva => {
+      renderItemReservaAPI(reserva); // Usa a nova função de render (Sprint 4)
+    });
+
+  } catch (error) {
+    listaReservas.innerHTML = '<li>Erro ao carregar histórico.</li>';
+    mostrarToast('Falha ao carregar histórico da API.', 'err');
+    console.error(error);
+  }
+}
+
+// NOVO ARRANQUE (SPRINT 4)
+document.addEventListener('DOMContentLoaded', async () => {
+  // 1. Atualiza o menu (comportamento original)
   atualizarMenuAtivo();
+
+  // 2. Carrega os dados da API
+  // (Isso substitui 'seedSeNecessario', 'normalizarReservasAntigas',
+  // 'popularRecursos()' e 'carregarHistorico()' que vinham do storage.js)
+  
+  // Usamos Promise.all para carregar recursos e reservas em paralelo
+  await Promise.all([
+      popularRecursosSelect(),
+      carregarHistoricoUI()
+  ]);
 });
 
